@@ -20,5 +20,7 @@ A2 Appendix — full design history
 A3 Appendix — sidebar explorations
 A4 Appendix — flow explorations
 
-Documents 3, 4, 5 and the appendices are wide canvases: scroll and zoom out
-(Cmd/Ctrl + minus) to see the full board.
+Documents 3, 4, 5 and the appendices are wide canvases. Each one has a zoom
+control in the bottom left corner: press Fit to pull the whole board into view,
+then zoom back in on whatever you want to read. You can also pinch to zoom
+(or Ctrl/Cmd + scroll), hold Space and drag to pan, and press F to fit.

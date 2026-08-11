@@ -17,6 +17,226 @@
       This page requires JavaScript to display.
     </div>
   </noscript>
+
+  <script>
+/* Canvas navigator — zoom and pan for the wide boards.
+   Injected into the bundler shell. The shell's DOM is thrown away by
+   documentElement.replaceWith() when the bundle mounts, so this waits for
+   the mounted canvas and re-attaches the panel if it ever disappears.
+   Zoom uses CSS `zoom` on the canvas root, not a transform: the board
+   re-lays-out at the new scale, so text stays crisp and the 65 sticky
+   headers keep working. The panel lives on <html>, outside <body>, so the
+   zoom never touches it. */
+(function () {
+  if (window.__canvasNav) return;
+  window.__canvasNav = true;
+
+  /* The widest board here is ~38,000px, so the floor has to go low enough that
+     Fit can actually reach it on a laptop screen. */
+  var MIN = 0.02, MAX = 2, STEP = 1.25;
+  var STORE = 'canvasNavZoom:' + location.pathname;
+  var zoom = 1, label, panel, hand = false, space = false;
+  var panning = false, ox = 0, oy = 0, osx = 0, osy = 0;
+
+  function root() {
+    var el = document.getElementById('dc-root');
+    if (el) return el;
+    var b = document.body;
+    if (!b) return null;
+    for (var i = 0; i < b.children.length; i++) {
+      var c = b.children[i];
+      if (c.tagName !== 'SCRIPT' && c.id !== 'canvas-nav') return c;
+    }
+    return null;
+  }
+
+  function clamp(z) { return Math.min(MAX, Math.max(MIN, z)); }
+
+  /* Keep the point under (ax, ay) pinned while the scale changes. */
+  function apply(z, ax, ay) {
+    var el = root();
+    if (!el) return;
+    z = clamp(z);
+    if (ax == null) { ax = innerWidth / 2; ay = innerHeight / 2; }
+    var k = z / (zoom || 1);
+    var sx = (scrollX + ax) * k - ax;
+    var sy = (scrollY + ay) * k - ay;
+    zoom = z;
+    el.style.zoom = z;
+    scrollTo(Math.max(0, sx), Math.max(0, sy));
+    if (label) label.textContent = Math.round(z * 100) + '%';
+    try { sessionStorage.setItem(STORE, String(z)); } catch (e) {}
+  }
+
+  /* scrollWidth is reported in the element's own unzoomed coordinates, so it
+     stays correct whatever the current scale is. getBoundingClientRect would
+     give the block width (the viewport), not the overflowing board. */
+  function fit() {
+    var el = root();
+    if (!el || !el.scrollWidth) return;
+    apply((innerWidth - 32) / el.scrollWidth, 0, 0);
+    scrollTo(0, 0);
+  }
+
+  function setCursor() {
+    var c = panning ? 'grabbing' : (hand || space ? 'grab' : '');
+    if (document.body) document.body.style.cursor = c;
+  }
+
+  function setHand(on) {
+    hand = on;
+    if (panel) {
+      var b = panel.querySelector('[data-act="hand"]');
+      if (b) { b.setAttribute('aria-pressed', String(hand)); b.classList.toggle('on', hand); }
+    }
+    setCursor();
+  }
+
+  /* ---- panning ---- */
+  addEventListener('mousedown', function (e) {
+    if (e.button === 1 || (e.button === 0 && (space || hand))) {
+      if (panel && panel.contains(e.target)) return;
+      panning = true;
+      ox = e.clientX; oy = e.clientY; osx = scrollX; osy = scrollY;
+      setCursor();
+      e.preventDefault();
+    }
+  }, true);
+
+  addEventListener('mousemove', function (e) {
+    if (!panning) return;
+    scrollTo(Math.max(0, osx - (e.clientX - ox)), Math.max(0, osy - (e.clientY - oy)));
+    e.preventDefault();
+  }, true);
+
+  addEventListener('mouseup', function () {
+    if (!panning) return;
+    panning = false;
+    setCursor();
+  }, true);
+
+  /* ---- pinch / ctrl+wheel zoom ----
+     A trackpad pinch arrives as ctrl+wheel with a small deltaY; a mouse wheel
+     notch arrives as ±100 (or ±3 lines). Normalise to pixels and cap the
+     per-event delta so one notch is a step, not a leap. */
+  addEventListener('wheel', function (e) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    var d = e.deltaY;
+    if (e.deltaMode === 1) d *= 16;
+    else if (e.deltaMode === 2) d *= innerHeight;
+    d = Math.max(-60, Math.min(60, d));
+    apply(zoom * Math.exp(-d * 0.005), e.clientX, e.clientY);
+  }, { passive: false, capture: true });
+
+  /* ---- keyboard ---- */
+  function typing(t) {
+    return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  }
+
+  addEventListener('keydown', function (e) {
+    if (typing(e.target)) return;
+    if (e.code === 'Space' && !space) { space = true; setCursor(); e.preventDefault(); return; }
+    var meta = e.metaKey || e.ctrlKey;
+    if (meta && (e.key === '=' || e.key === '+')) { e.preventDefault(); apply(zoom * STEP); }
+    else if (meta && e.key === '-') { e.preventDefault(); apply(zoom / STEP); }
+    else if (meta && e.key === '0') { e.preventDefault(); apply(1); }
+    else if (!meta && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); fit(); }
+    else if (!meta && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); setHand(!hand); }
+  }, true);
+
+  addEventListener('keyup', function (e) {
+    if (e.code === 'Space') { space = false; setCursor(); }
+  }, true);
+
+  addEventListener('blur', function () { space = false; panning = false; setCursor(); });
+
+  /* ---- panel ---- */
+  var CSS = [
+    '#canvas-nav{position:fixed;left:16px;bottom:16px;z-index:2147483647;display:flex;align-items:center;gap:2px;',
+    'padding:4px;border-radius:12px;background:#1a1815;color:#f2ede4;',
+    'box-shadow:0 2px 6px rgba(0,0,0,.16),0 8px 24px rgba(0,0,0,.22);',
+    'font:500 12px/1 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;',
+    '-webkit-font-smoothing:antialiased;user-select:none;}',
+    '#canvas-nav button{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:center;',
+    'height:28px;min-width:28px;padding:0 8px;border-radius:8px;color:#f2ede4;cursor:pointer;',
+    'font:inherit;letter-spacing:.01em;transition:background .12s ease,color .12s ease;}',
+    '#canvas-nav button:hover{background:rgba(242,237,228,.12);}',
+    '#canvas-nav button:active{background:rgba(242,237,228,.2);}',
+    '#canvas-nav button:focus-visible{outline:2px solid #d4674f;outline-offset:1px;}',
+    '#canvas-nav button.on{background:#a8412f;color:#fff;}',
+    '#canvas-nav .pct{min-width:46px;justify-content:center;font-variant-numeric:tabular-nums;',
+    'color:#cfc7b8;cursor:default;}',
+    '#canvas-nav .pct:hover{background:none;}',
+    '#canvas-nav .sep{width:1px;height:16px;margin:0 4px;background:rgba(242,237,228,.18);}',
+    '#canvas-nav .ico{font-size:15px;line-height:1;}',
+    '@media print{#canvas-nav{display:none;}}',
+    '@media (prefers-reduced-motion:reduce){#canvas-nav button{transition:none;}}'
+  ].join('');
+
+  function build() {
+    var style = document.getElementById('canvas-nav-css');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'canvas-nav-css';
+      style.textContent = CSS;
+      (document.head || document.documentElement).appendChild(style);
+    }
+
+    panel = document.createElement('div');
+    panel.id = 'canvas-nav';
+    panel.setAttribute('role', 'toolbar');
+    panel.setAttribute('aria-label', 'Canvas zoom and pan');
+    panel.innerHTML =
+      '<button data-act="out" title="Zoom out (Cmd/Ctrl -)" aria-label="Zoom out"><span class="ico">−</span></button>' +
+      '<button class="pct" data-act="pct" tabindex="-1" aria-live="polite" aria-label="Current zoom">100%</button>' +
+      '<button data-act="in" title="Zoom in (Cmd/Ctrl +)" aria-label="Zoom in"><span class="ico">+</span></button>' +
+      '<span class="sep"></span>' +
+      '<button data-act="fit" title="Fit whole board (F)">Fit</button>' +
+      '<button data-act="reset" title="Actual size (Cmd/Ctrl 0)">100%</button>' +
+      '<span class="sep"></span>' +
+      '<button data-act="hand" aria-pressed="false" title="Hand tool — drag to pan (H, or hold Space)"><span class="ico">✋</span></button>';
+
+    label = panel.querySelector('.pct');
+    label.textContent = Math.round(zoom * 100) + '%';
+
+    panel.addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      var a = b.getAttribute('data-act');
+      if (a === 'in') apply(zoom * STEP);
+      else if (a === 'out') apply(zoom / STEP);
+      else if (a === 'fit') fit();
+      else if (a === 'reset') apply(1);
+      else if (a === 'hand') setHand(!hand);
+    });
+
+    document.documentElement.appendChild(panel);
+    setHand(hand);
+  }
+
+  /* The bundle mounts asynchronously and replaces <html>; re-attach whenever
+     the panel is gone and a canvas is present. */
+  var stored = 1;
+  try {
+    var v = parseFloat(sessionStorage.getItem(STORE));
+    if (v >= MIN && v <= MAX) stored = v;
+  } catch (e) {}
+
+  setInterval(function () {
+    var el = root();
+    if (!el) return;
+    if (!panel || !panel.isConnected) {
+      panel = null;
+      build();
+      zoom = 1;
+      if (stored !== 1) apply(stored, 0, 0);
+    } else if (el.style.zoom === '' && zoom !== 1) {
+      el.style.zoom = zoom;
+    }
+  }, 250);
+})();
+  </script>
 </head>
 <body>
   <div id="__bundler_thumbnail">
