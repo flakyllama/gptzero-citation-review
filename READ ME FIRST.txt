@@ -1,0 +1,24 @@
+GPTZero — Hallucination scan redesign
+Standalone HTML submission
+
+HOW TO OPEN
+Unzip the folder, then open "index.html" (the brief) in any browser
+(Chrome recommended, 1440px wide or more). Every file is self-contained and works
+offline — no install, plugins or internet connection needed. Keep all files in the
+same folder so the links between documents work.
+
+READ IN THIS ORDER
+1  Brief — problem, decisions and roadmap (start here)
+2  Prototype — clickable redesign
+3  Screens — all states and the design system
+
+SUPPORTING WORK
+4  Audit — the current product, annotated
+5  Reference — seventeen adjacent products
+A1 Appendix — six early directions
+A2 Appendix — full design history
+A3 Appendix — sidebar explorations
+A4 Appendix — flow explorations
+
+Documents 3, 4, 5 and the appendices are wide canvases: scroll and zoom out
+(Cmd/Ctrl + minus) to see the full board.
